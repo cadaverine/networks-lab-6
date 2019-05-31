@@ -6,6 +6,9 @@ import (
 	"io"
 	"log"
 	"net/smtp"
+	"syscall"
+
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 const (
@@ -60,7 +63,8 @@ func main() {
 	}
 
 	fmt.Print("Enter password: ")
-	fmt.Scanln(&password)
+	password = string(handleError(terminal.ReadPassword(int(syscall.Stdin))).([]byte))
+	fmt.Print("\n\n")
 
 	tlsConfig := &tls.Config{
 		ServerName:         smtpHost,
