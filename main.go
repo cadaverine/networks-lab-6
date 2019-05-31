@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
 	"net/smtp"
+	"os"
+	"path/filepath"
 	"syscall"
 
 	"golang.org/x/crypto/ssh/terminal"
@@ -18,6 +21,8 @@ const (
 	defaultRecipient = "spygelsky@yandex.ru"
 	defaultSubject   = "test subject"
 	defaultMessage   = "test message"
+	defaultFilePath  = "./README.md"
+	defaultBoundary  = "---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---"
 )
 
 func checkError(err error) {
@@ -31,20 +36,45 @@ func handleError(value interface{}, err error) interface{} {
 	return value
 }
 
-func createMessage(headers map[string]string, bodyStr string) string {
-	var headersStr string
+func createMessage(subject, message, fileName, boundary string) []byte {
+	buffer := new(bytes.Buffer)
 
-	for key, value := range headers {
-		headersStr += fmt.Sprintf("%s: %s\r\n", key, value)
+	fmt.Fprintf(buffer, "Subject: %s\n", subject)
+	fmt.Fprintf(buffer, "MIME-Version: 1.0\n")
+	fmt.Fprintf(buffer, "Content-Type: multipart/mixed; boundary=%s\n", boundary)
+
+	fmt.Fprintf(buffer, "\n--%s\n", boundary)
+	fmt.Fprintf(buffer, "Content-Type: text/plain; charset=utf-8\n\n")
+	fmt.Fprintf(buffer, "%s\n\n", message)
+
+	if fileName != "" {
+		addAttachment(buffer, fileName, boundary)
 	}
 
-	return headersStr + "\r\n" + bodyStr
+	return buffer.Bytes()
+}
+
+func addAttachment(writer io.Writer, fileName, boundary string) {
+	fmt.Fprintf(writer, "\n--%s\n", boundary)
+	fmt.Fprintf(writer, "Content-Type: text/plain; charset=utf-8\n")
+
+	fileData, err := os.Open(fileName)
+	if err != nil {
+		fmt.Fprintf(writer, "Error: could not open file: %v\n", err)
+	} else {
+		defer fileData.Close()
+		fmt.Fprintf(writer, "Content-Disposition: attachment; filename=\"%s\"\n\n", filepath.Base(fileName))
+		io.Copy(writer, fileData)
+	}
+
+	fmt.Fprintf(writer, "\n--%s\n", boundary)
 }
 
 func main() {
 	body := ""
 	sender := ""
 	subject := ""
+	filePath := ""
 	password := ""
 	recipient := ""
 
@@ -66,6 +96,31 @@ func main() {
 	password = string(handleError(terminal.ReadPassword(int(syscall.Stdin))).([]byte))
 	fmt.Print("\n\n")
 
+	fmt.Print("Enter subject  (enter to default): ")
+	fmt.Scanln(&subject)
+	if subject == "" {
+		subject = defaultSubject
+	}
+
+	fmt.Print("Enter message  (enter to default): ")
+	fmt.Scanln(&body)
+	if body == "" {
+		body = defaultMessage
+	}
+
+	fmt.Print("Enter filepath (enter to default): ")
+	fmt.Scanln(&filePath)
+	if filePath == "" {
+		filePath = defaultFilePath
+	}
+
+	messageBytes := createMessage(subject, body, filePath, defaultBoundary)
+
+	fmt.Println("\nResult message:")
+	fmt.Println("\n----------------------")
+	fmt.Println(string(messageBytes))
+	fmt.Println("----------------------")
+
 	tlsConfig := &tls.Config{
 		ServerName:         smtpHost,
 		InsecureSkipVerify: true,
@@ -74,43 +129,16 @@ func main() {
 	auth := smtp.PlainAuth("", sender, password, smtpHost)
 
 	connection := handleError(tls.Dial("tcp", smtpHost+":"+smtpPort, tlsConfig)).(*tls.Conn)
-
 	client := handleError(smtp.NewClient(connection, smtpHost)).(*smtp.Client)
-
 	client.Auth(auth)
 	client.Mail(sender)
 	client.Rcpt(recipient)
 
-	fmt.Print("Enter subject               (enter to default): ")
-	fmt.Scanln(&subject)
-	if subject == "" {
-		subject = defaultSubject
-	}
+	data := handleError(client.Data()).(io.WriteCloser)
+	defer data.Close()
 
-	fmt.Print("Enter message               (enter to default): ")
-	fmt.Scanln(&body)
-	if body == "" {
-		body = defaultMessage
-	}
-
-	headers := make(map[string]string)
-
-	headers["From"] = sender
-	headers["To"] = recipient
-	headers["Subject"] = subject
-
-	message := createMessage(headers, body)
-
-	fmt.Println("\nResult message:")
-	fmt.Println("\n----------------------")
-	fmt.Println(message)
-	fmt.Println("----------------------")
-
-	writeCloser := handleError(client.Data()).(io.WriteCloser)
-	writeCloser.Write([]byte(message))
+	io.Copy(data, bytes.NewReader(messageBytes))
 
 	fmt.Println("\nMessage was successfully sent.")
-
-	writeCloser.Close()
 	client.Quit()
 }
