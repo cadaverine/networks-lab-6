@@ -15,14 +15,12 @@ import (
 )
 
 const (
-	smtpHost         = "smtp.yandex.ru"
-	smtpPort         = "465"
-	defaultSender    = "networks-lab-6@yandex.ru"
-	defaultRecipient = "spygelsky@yandex.ru"
-	defaultSubject   = "test subject"
-	defaultMessage   = "test message"
-	defaultFilePath  = "./README.md"
-	defaultBoundary  = "---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---"
+	smtpHost        = "smtp.yandex.ru"
+	smtpPort        = "465"
+	defaultSubject  = "test subject"
+	defaultMessage  = "test message"
+	defaultFilePath = "./attachments/test.txt"
+	defaultBoundary = "---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---BOUNDARY---"
 )
 
 func checkError(err error) {
@@ -83,14 +81,6 @@ func main() {
 
 	fmt.Print("Specify the recipient email (enter to default): ")
 	fmt.Scanln(&recipient)
-
-	if sender == "" {
-		sender = defaultSender
-	}
-
-	if recipient == "" {
-		recipient = defaultRecipient
-	}
 
 	fmt.Print("Enter password: ")
 	password = string(handleError(terminal.ReadPassword(int(syscall.Stdin))).([]byte))
